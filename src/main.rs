@@ -1,8 +1,8 @@
 use macroquad::prelude::*;
 
-const MOVE_SPEED: f32 = 0.1;
-const LOOK_SPEED: f32 = 0.1;
+use crate::player::Player;
 
+mod player;
 mod ui;
 mod world;
 
@@ -21,23 +21,12 @@ async fn main() {
     let bounds = 8.0;
 
     let world_up = vec3(0.0, 1.0, 0.0);
-    let mut yaw: f32 = 1.18;
-    let mut pitch: f32 = 0.0;
+    let mut player = Player::new(1.18, 0.0, vec3(0.0, 1.0, 0.0), world_up);
 
-    let mut front = vec3(
-        yaw.cos() * pitch.cos(),
-        pitch.sin(),
-        yaw.sin() * pitch.cos(),
-    )
-    .normalize();
-    let mut right = front.cross(world_up).normalize();
-    let mut up = right.cross(front).normalize();
-
-    let mut position = vec3(0.0, 1.0, 0.0);
     let mut last_mouse_position: Vec2 = mouse_position().into();
 
-    let mut grabbed = true;
-    set_cursor_grab(grabbed);
+    let mut cursor_grabbed = true;
+    set_cursor_grab(cursor_grabbed);
     show_mouse(false);
 
     loop {
@@ -47,25 +36,25 @@ async fn main() {
             break;
         }
         if is_key_pressed(KeyCode::Tab) {
-            grabbed = !grabbed;
-            set_cursor_grab(grabbed);
-            show_mouse(!grabbed);
+            cursor_grabbed = !cursor_grabbed;
+            set_cursor_grab(cursor_grabbed);
+            show_mouse(!cursor_grabbed);
         }
 
         if is_key_down(KeyCode::W) {
-            position += front * MOVE_SPEED;
+            player.move_forwards();
         }
         if is_key_down(KeyCode::S) {
-            position -= front * MOVE_SPEED;
+            player.move_backwards();
         }
         if is_key_down(KeyCode::A) {
-            position -= right * MOVE_SPEED;
+            player.move_left();
         }
         if is_key_down(KeyCode::D) {
-            position += right * MOVE_SPEED;
+            player.move_right();
         }
         if is_key_down(KeyCode::Space) {
-            position += up * MOVE_SPEED;
+            player.move_up();
         }
 
         let mouse_position: Vec2 = mouse_position().into();
@@ -73,34 +62,15 @@ async fn main() {
 
         last_mouse_position = mouse_position;
 
-        if grabbed {
-            yaw += mouse_delta.x * delta * LOOK_SPEED;
-            pitch += mouse_delta.y * delta * -LOOK_SPEED;
-
-            pitch = if pitch > 1.5 { 1.5 } else { pitch };
-            pitch = if pitch < -1.5 { -1.5 } else { pitch };
-
-            front = vec3(
-                yaw.cos() * pitch.cos(),
-                pitch.sin(),
-                yaw.sin() * pitch.cos(),
-            )
-            .normalize();
-
-            right = front.cross(world_up).normalize();
-            up = right.cross(front).normalize();
-
-            x += if switch { 0.04 } else { -0.04 };
-            if x >= bounds || x <= -bounds {
-                switch = !switch;
-            }
+        if cursor_grabbed {
+            player.update(delta);
         }
 
         clear_background(LIGHTGRAY);
 
         world::draw(x, position, front, up);
 
-        ui::draw(mouse_position, grabbed);
+        ui::draw(mouse_position, cursor_grabbed);
 
         next_frame().await
     }
