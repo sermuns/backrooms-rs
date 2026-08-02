@@ -4,7 +4,6 @@ use bevy::{
     camera::visibility::RenderLayers,
     color::palettes::tailwind,
     input::mouse::AccumulatedMouseMotion,
-    light::NotShadowCaster,
     prelude::*,
     window::{CursorGrabMode, CursorOptions},
 };
@@ -13,7 +12,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, (spawn_view_model, spawn_world_model, spawn_lights))
-        .add_systems(Update, (grab_mouse, move_player, change_fov))
+        .add_systems(Update, (grab_mouse, move_player))
         .run();
 }
 
@@ -48,14 +47,7 @@ const DEFAULT_RENDER_LAYER: usize = 0;
 /// The light source belongs to both layers.
 const VIEW_MODEL_RENDER_LAYER: usize = 1;
 
-fn spawn_view_model(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let arm = meshes.add(Cuboid::new(0.1, 0.1, 0.5));
-    let arm_material = materials.add(Color::from(tailwind::TEAL_200));
-
+fn spawn_view_model(mut commands: Commands) {
     commands.spawn((
         Player,
         CameraSensitivity::default(),
@@ -79,21 +71,11 @@ fn spawn_view_model(
                     ..default()
                 },
                 Projection::from(PerspectiveProjection {
-                    fov: 70.0_f32.to_radians(),
+                    fov: 90.0_f32.to_radians(),
                     ..default()
                 }),
                 // Only render objects belonging to the view model.
                 RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
-            ),
-            // Spawn the player's right arm.
-            (
-                Mesh3d(arm),
-                MeshMaterial3d(arm_material),
-                Transform::from_xyz(0.2, -0.1, -0.25),
-                // Ensure the arm is only rendered by the view model camera.
-                RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
-                // The arm is free-floating, so shadows would look weird.
-                NotShadowCaster,
             ),
         ],
     ));
@@ -158,55 +140,50 @@ fn grab_mouse(
 fn move_player(
     accumulated_mouse_motion: Res<AccumulatedMouseMotion>,
     player: Single<(&mut Transform, &CameraSensitivity), With<Player>>,
+    key: Res<ButtonInput<KeyCode>>,
 ) {
     let (mut transform, camera_sensitivity) = player.into_inner();
 
-    let delta = accumulated_mouse_motion.delta;
+    let mouse_delta = accumulated_mouse_motion.delta;
 
-    if delta == Vec2::ZERO {
-        return;
+    if mouse_delta != Vec2::ZERO {
+        // Note that we are not multiplying by delta_time here.
+        // The reason is that for mouse movement, we already get the full movement that happened since the last frame.
+        // This means that if we multiply by delta_time, we will get a smaller rotation than intended by the user.
+        // This situation is reversed when reading e.g. analog input from a gamepad however, where the same rules
+        // as for keyboard input apply. Such an input should be multiplied by delta_time to get the intended rotation
+        // independent of the framerate.
+        let delta_yaw = -mouse_delta.x * camera_sensitivity.x;
+        let delta_pitch = -mouse_delta.y * camera_sensitivity.y;
+
+        let (yaw, pitch, roll) = transform.rotation.to_euler(EulerRot::YXZ);
+        let yaw = yaw + delta_yaw;
+
+        // If the pitch was ±¹⁄₂ π, the camera would look straight up or down.
+        // When the user wants to move the camera back to the horizon, which way should the camera face?
+        // The camera has no way of knowing what direction was "forward" before landing in that extreme position,
+        // so the direction picked will for all intents and purposes be arbitrary.
+        // Another issue is that for mathematical reasons, the yaw will effectively be flipped when the pitch is at the extremes.
+        // To not run into these issues, we clamp the pitch to a safe range.
+        const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
+        let pitch = (pitch + delta_pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+
+        transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
     }
 
-    // Note that we are not multiplying by delta_time here.
-    // The reason is that for mouse movement, we already get the full movement that happened since the last frame.
-    // This means that if we multiply by delta_time, we will get a smaller rotation than intended by the user.
-    // This situation is reversed when reading e.g. analog input from a gamepad however, where the same rules
-    // as for keyboard input apply. Such an input should be multiplied by delta_time to get the intended rotation
-    // independent of the framerate.
-    let delta_yaw = -delta.x * camera_sensitivity.x;
-    let delta_pitch = -delta.y * camera_sensitivity.y;
+    const WALK_SPEED: f32 = 0.1;
 
-    let (yaw, pitch, roll) = transform.rotation.to_euler(EulerRot::YXZ);
-    let yaw = yaw + delta_yaw;
-
-    // If the pitch was ±¹⁄₂ π, the camera would look straight up or down.
-    // When the user wants to move the camera back to the horizon, which way should the camera face?
-    // The camera has no way of knowing what direction was "forward" before landing in that extreme position,
-    // so the direction picked will for all intents and purposes be arbitrary.
-    // Another issue is that for mathematical reasons, the yaw will effectively be flipped when the pitch is at the extremes.
-    // To not run into these issues, we clamp the pitch to a safe range.
-    const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
-    let pitch = (pitch + delta_pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
-
-    transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
-}
-
-fn change_fov(
-    input: Res<ButtonInput<KeyCode>>,
-    mut world_model_projection: Single<&mut Projection, With<WorldModelCamera>>,
-) {
-    let Projection::Perspective(perspective) = world_model_projection.as_mut() else {
-        unreachable!(
-            "The `Projection` component was explicitly built with `Projection::Perspective`"
-        );
-    };
-
-    if input.pressed(KeyCode::ArrowUp) {
-        perspective.fov -= 1.0_f32.to_radians();
-        perspective.fov = perspective.fov.max(20.0_f32.to_radians());
+    let forward_xz = WALK_SPEED * (*transform.forward()).with_y(0.);
+    if key.pressed(KeyCode::KeyW) {
+        transform.translation += forward_xz;
+    } else if key.pressed(KeyCode::KeyS) {
+        transform.translation -= forward_xz;
     }
-    if input.pressed(KeyCode::ArrowDown) {
-        perspective.fov += 1.0_f32.to_radians();
-        perspective.fov = perspective.fov.min(160.0_f32.to_radians());
+
+    let right_xz = WALK_SPEED * (*transform.right()).with_y(0.);
+    if key.pressed(KeyCode::KeyD) {
+        transform.translation += right_xz;
+    } else if key.pressed(KeyCode::KeyA) {
+        transform.translation -= right_xz;
     }
 }
