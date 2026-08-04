@@ -64,43 +64,49 @@ fn spawn_view_model(mut commands: Commands) {
     ));
 }
 
+const WIDTH_ROOMS: usize = 16;
+const HEIGHT_ROOMS: usize = 16;
+const ROOM_SIZE_METERS: usize = 16;
+
 fn spawn_world_model(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let floor = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(10.0)));
-    let cube = meshes.add(Cuboid::new(2.0, 0.5, 1.0));
-    let material = materials.add(Color::WHITE);
-
-    // The world model camera will render the floor and the cubes spawned in this system.
-    // Assigning no `RenderLayers` component defaults to layer 0.
-
-    commands.spawn((Mesh3d(floor), MeshMaterial3d(material.clone())));
-
-    commands.spawn((
-        Mesh3d(cube.clone()),
-        MeshMaterial3d(material.clone()),
-        Transform::from_xyz(0.0, 0.25, -3.0),
+    let ground_plane = meshes.add(Plane3d::new(
+        Vec3::Y,
+        Vec2::new(
+            (WIDTH_ROOMS * ROOM_SIZE_METERS) as f32,
+            (HEIGHT_ROOMS * ROOM_SIZE_METERS) as f32,
+        ),
     ));
-
-    commands.spawn((
-        Mesh3d(cube),
-        MeshMaterial3d(material),
-        Transform::from_xyz(0.75, 1.75, 0.0),
-    ));
+    let ground_material = materials.add(BACKROOMS_YELLOWS[1]);
+    commands.spawn((Mesh3d(ground_plane), MeshMaterial3d(ground_material)));
 }
 
 fn spawn_lights(mut commands: Commands) {
-    commands.spawn((
-        PointLight {
-            color: BACKROOMS_YELLOWS[0],
-            shadow_maps_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(-2.0, 4.0, -0.75),
-        RenderLayers::default(),
-    ));
+    const LIGHT_HEIGHT_METERS: f32 = 2.0;
+
+    for x in 0..WIDTH_ROOMS {
+        for z in 0..HEIGHT_ROOMS {
+            let dx = x as isize - WIDTH_ROOMS as isize / 2;
+            let dz = z as isize - HEIGHT_ROOMS as isize / 2;
+
+            commands.spawn((
+                PointLight {
+                    color: BACKROOMS_YELLOWS[0],
+                    // shadow_maps_enabled: true,
+                    ..default()
+                },
+                Transform::from_xyz(
+                    (dx * ROOM_SIZE_METERS as isize) as f32,
+                    LIGHT_HEIGHT_METERS,
+                    (dz * ROOM_SIZE_METERS as isize) as f32,
+                ),
+                RenderLayers::default(),
+            ));
+        }
+    }
 }
 
 fn grab_mouse(
