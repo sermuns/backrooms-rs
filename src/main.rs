@@ -1,4 +1,4 @@
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 use bevy::{
     camera::visibility::RenderLayers,
@@ -18,7 +18,7 @@ const BACKROOMS_YELLOWS: &[Color] = &[
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_systems(Startup, (spawn_view_model, spawn_world_model, spawn_lights))
+        .add_systems(Startup, (spawn_player, spawn_world))
         .add_systems(Update, (grab_mouse, move_player))
         .run();
 }
@@ -47,7 +47,7 @@ struct WorldModelCamera;
 
 const FOV_RADIANS: f32 = 90.0_f32.to_radians();
 
-fn spawn_view_model(mut commands: Commands) {
+fn spawn_player(mut commands: Commands) {
     commands.spawn((
         Player,
         CameraSensitivity::default(),
@@ -67,8 +67,10 @@ fn spawn_view_model(mut commands: Commands) {
 const WIDTH_ROOMS: usize = 16;
 const HEIGHT_ROOMS: usize = 16;
 const ROOM_SIZE_METERS: usize = 16;
+const HALF_ROOM_SIZE_METERS: f32 = ROOM_HEIGHT_METERS as f32 / 2.;
+const ROOM_HEIGHT_METERS: f32 = 2.0;
 
-fn spawn_world_model(
+fn spawn_world(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -81,30 +83,80 @@ fn spawn_world_model(
         ),
     ));
     let ground_material = materials.add(BACKROOMS_YELLOWS[1]);
-    commands.spawn((Mesh3d(ground_plane), MeshMaterial3d(ground_material)));
-}
+    commands.spawn((
+        Mesh3d(ground_plane.clone()),
+        MeshMaterial3d(ground_material.clone()),
+    ));
 
-fn spawn_lights(mut commands: Commands) {
-    const LIGHT_HEIGHT_METERS: f32 = 2.0;
+    let ceiling_plane = meshes.add(Plane3d::new(
+        -Vec3::Y,
+        Vec2::new(
+            (WIDTH_ROOMS * ROOM_SIZE_METERS) as f32,
+            (HEIGHT_ROOMS * ROOM_SIZE_METERS) as f32,
+        ),
+    ));
+    commands.spawn((
+        Mesh3d(ceiling_plane),
+        MeshMaterial3d(ground_material),
+        Transform::from_xyz(0., ROOM_HEIGHT_METERS, 0.),
+    ));
 
-    for x in 0..WIDTH_ROOMS {
-        for z in 0..HEIGHT_ROOMS {
-            let dx = x as isize - WIDTH_ROOMS as isize / 2;
-            let dz = z as isize - HEIGHT_ROOMS as isize / 2;
+    let wall = meshes.add(Plane3d::new(
+        Vec3::Z,
+        Vec2::new(ROOM_SIZE_METERS as f32, ROOM_HEIGHT_METERS),
+    ));
+    let wall_material = materials.add(BACKROOMS_YELLOWS[3]);
+
+    for row in 0..WIDTH_ROOMS {
+        for col in 0..HEIGHT_ROOMS {
+            let dx = row as isize - WIDTH_ROOMS as isize / 2;
+            let dz = col as isize - HEIGHT_ROOMS as isize / 2;
+
+            let translation = Vec3::new(
+                (dx * ROOM_SIZE_METERS as isize) as f32 + HALF_ROOM_SIZE_METERS,
+                0.,
+                (dz * ROOM_SIZE_METERS as isize) as f32 + HALF_ROOM_SIZE_METERS,
+            );
 
             commands.spawn((
-                PointLight {
+                SpotLight {
                     color: BACKROOMS_YELLOWS[0],
                     // shadow_maps_enabled: true,
                     ..default()
                 },
-                Transform::from_xyz(
-                    (dx * ROOM_SIZE_METERS as isize) as f32,
-                    LIGHT_HEIGHT_METERS,
-                    (dz * ROOM_SIZE_METERS as isize) as f32,
-                ),
+                Transform::from_translation(translation.with_y(ROOM_HEIGHT_METERS - 1.))
+                    .looking_at(translation.with_z(0.), Vec3::Y),
                 RenderLayers::default(),
             ));
+
+            for (offset, angle) in [
+                (
+                    Vec3::new(HALF_ROOM_SIZE_METERS, ROOM_HEIGHT_METERS / 2.0, 0.0),
+                    FRAC_PI_2,
+                ),
+                (
+                    Vec3::new(-HALF_ROOM_SIZE_METERS, ROOM_HEIGHT_METERS / 2.0, 0.0),
+                    -FRAC_PI_2,
+                ),
+                (
+                    Vec3::new(0.0, ROOM_HEIGHT_METERS / 2.0, HALF_ROOM_SIZE_METERS),
+                    0.0,
+                ),
+                (
+                    Vec3::new(0.0, ROOM_HEIGHT_METERS / 2.0, -HALF_ROOM_SIZE_METERS),
+                    PI,
+                ),
+            ] {
+                commands.spawn((
+                    Mesh3d(wall.clone()),
+                    MeshMaterial3d(wall_material.clone()),
+                    Transform {
+                        translation: translation + offset,
+                        rotation: Quat::from_rotation_y(angle),
+                        ..default()
+                    },
+                ));
+            }
         }
     }
 }
