@@ -2,11 +2,18 @@ use std::f32::consts::FRAC_PI_2;
 
 use bevy::{
     camera::visibility::RenderLayers,
-    color::palettes::tailwind,
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
     window::{CursorGrabMode, CursorOptions},
 };
+
+const BACKROOMS_YELLOWS: &[Color] = &[
+    Color::srgb_u8(228, 230, 168),
+    Color::srgb_u8(225, 226, 187),
+    Color::srgb_u8(214, 222, 167),
+    Color::srgb_u8(195, 203, 110),
+    Color::srgb_u8(198, 197, 139),
+];
 
 fn main() {
     App::new()
@@ -38,14 +45,7 @@ impl Default for CameraSensitivity {
 #[derive(Debug, Component)]
 struct WorldModelCamera;
 
-/// Used implicitly by all entities without a `RenderLayers` component.
-/// Our world model camera and all objects other than the player are on this layer.
-/// The light source belongs to both layers.
-const DEFAULT_RENDER_LAYER: usize = 0;
-
-/// Used by the view model camera and the player's arm.
-/// The light source belongs to both layers.
-const VIEW_MODEL_RENDER_LAYER: usize = 1;
+const FOV_RADIANS: f32 = 90.0_f32.to_radians();
 
 fn spawn_view_model(mut commands: Commands) {
     commands.spawn((
@@ -53,31 +53,14 @@ fn spawn_view_model(mut commands: Commands) {
         CameraSensitivity::default(),
         Transform::from_xyz(0.0, 1.0, 0.0),
         Visibility::default(),
-        children![
-            (
-                WorldModelCamera,
-                Camera3d::default(),
-                Projection::from(PerspectiveProjection {
-                    fov: 90.0_f32.to_radians(),
-                    ..default()
-                }),
-            ),
-            // Spawn view model camera.
-            (
-                Camera3d::default(),
-                Camera {
-                    // Bump the order to render on top of the world model.
-                    order: 1,
-                    ..default()
-                },
-                Projection::from(PerspectiveProjection {
-                    fov: 90.0_f32.to_radians(),
-                    ..default()
-                }),
-                // Only render objects belonging to the view model.
-                RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
-            ),
-        ],
+        children![(
+            WorldModelCamera,
+            Camera3d::default(),
+            Projection::from(PerspectiveProjection {
+                fov: FOV_RADIANS,
+                ..default()
+            }),
+        ),],
     ));
 }
 
@@ -111,13 +94,12 @@ fn spawn_world_model(
 fn spawn_lights(mut commands: Commands) {
     commands.spawn((
         PointLight {
-            color: Color::from(tailwind::ROSE_300),
+            color: BACKROOMS_YELLOWS[0],
             shadow_maps_enabled: true,
             ..default()
         },
         Transform::from_xyz(-2.0, 4.0, -0.75),
-        // The light source illuminates both the world model and the view model.
-        RenderLayers::from_layers(&[DEFAULT_RENDER_LAYER, VIEW_MODEL_RENDER_LAYER]),
+        RenderLayers::default(),
     ));
 }
 
@@ -147,24 +129,12 @@ fn move_player(
     let mouse_delta = accumulated_mouse_motion.delta;
 
     if mouse_delta != Vec2::ZERO {
-        // Note that we are not multiplying by delta_time here.
-        // The reason is that for mouse movement, we already get the full movement that happened since the last frame.
-        // This means that if we multiply by delta_time, we will get a smaller rotation than intended by the user.
-        // This situation is reversed when reading e.g. analog input from a gamepad however, where the same rules
-        // as for keyboard input apply. Such an input should be multiplied by delta_time to get the intended rotation
-        // independent of the framerate.
         let delta_yaw = -mouse_delta.x * camera_sensitivity.x;
         let delta_pitch = -mouse_delta.y * camera_sensitivity.y;
 
         let (yaw, pitch, roll) = transform.rotation.to_euler(EulerRot::YXZ);
         let yaw = yaw + delta_yaw;
 
-        // If the pitch was ±¹⁄₂ π, the camera would look straight up or down.
-        // When the user wants to move the camera back to the horizon, which way should the camera face?
-        // The camera has no way of knowing what direction was "forward" before landing in that extreme position,
-        // so the direction picked will for all intents and purposes be arbitrary.
-        // Another issue is that for mathematical reasons, the yaw will effectively be flipped when the pitch is at the extremes.
-        // To not run into these issues, we clamp the pitch to a safe range.
         const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
         let pitch = (pitch + delta_pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
 
