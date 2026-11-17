@@ -11,6 +11,7 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     window: Arc<Window>,
+    render_pipeline: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -49,6 +50,46 @@ impl State {
             color_space: wgpu::SurfaceColorSpace::Auto,
         };
 
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                immediate_size: 0,
+            });
+let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    label: Some("Render Pipeline"),
+    layout: Some(&render_pipeline_layout),
+    vertex: wgpu::VertexState {
+        module: &shader,
+        entry_point: Some("vs_main"),
+        buffers: &[],
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+    },
+    fragment: Some(wgpu::FragmentState {
+        module: &shader,
+        entry_point: Some("fs_main"),
+        targets: &[Some(wgpu::ColorTargetState {
+            format: config.format,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        })],
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+    }),
+    primitive: wgpu::PrimitiveState {
+        topology: wgpu::PrimitiveTopology::TriangleList, // 1.
+        strip_index_format: None,
+        front_face: wgpu::FrontFace::Ccw, // 2.
+        cull_mode: Some(wgpu::Face::Back),
+        // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+        polygon_mode: wgpu::PolygonMode::Fill,
+        unclipped_depth: false,
+        conservative: false,
+    },
+
         Ok(Self {
             surface,
             device,
@@ -56,6 +97,7 @@ impl State {
             config,
             is_surface_configured: false,
             window,
+            render_pipeline,
         })
     }
 
@@ -106,12 +148,12 @@ impl State {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some(concat!(env!("CARGO_PKG_NAME"), " Render Encoder")),
+                label: Some("Render Encoder"),
             });
 
         {
             let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some(concat!(env!("CARGO_PKG_NAME"), " Render Pass")),
+                label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
