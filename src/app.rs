@@ -4,7 +4,7 @@ use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
     event_loop::ActiveEventLoop,
-    keyboard::{KeyCode, PhysicalKey},
+    keyboard::PhysicalKey,
     window::Window,
 };
 
@@ -46,16 +46,22 @@ impl ApplicationHandler<State> for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => state.resize(size.width, size.height),
-            WindowEvent::RedrawRequested => state.render(),
+            WindowEvent::RedrawRequested => {
+                state.update();
+                if let Err(e) = state.render() {
+                    log::error!("{e}");
+                    event_loop.exit();
+                }
+            }
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
-                        physical_key: PhysicalKey::Code(KeyCode::Escape),
+                        physical_key: PhysicalKey::Code(code),
                         state: key_state,
                         ..
                     },
                 ..
-            } if key_state.is_pressed() => event_loop.exit(),
+            } => state.handle_key(event_loop, code, key_state.is_pressed()),
             _ => {}
         }
     }
